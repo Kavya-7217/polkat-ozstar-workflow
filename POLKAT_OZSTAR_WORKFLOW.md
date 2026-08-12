@@ -21,10 +21,7 @@ cd /fred/oz341/skavya/FRB20121102A_kavya/Imaging/S1
 Run:
 
 ```bash
-apptainer exec \
-    --bind /fred:/fred \
-    /fred/oz341/skavya/scripts/containers/polkat-0.2.5.sif \
-    python3 tools/ms_info.py <MS_NAME>
+apptainer exec  --bind /fred:/fred  /fred/oz341/skavya/scripts/containers/polkat-0.2.5.sif python3 tools/ms_info.py <MS_NAME>
 ```
 
 Replace `<MS_NAME>` with the Measurement Set.
@@ -32,10 +29,7 @@ Replace `<MS_NAME>` with the Measurement Set.
 For example:
 
 ```bash
-apptainer exec \
-    --bind /fred:/fred \
-    /fred/oz341/skavya/scripts/containers/polkat-0.2.5.sif \
-    python3 tools/ms_info.py S1.ms
+apptainer exec --bind /fred:/fred  /fred/oz341/skavya/scripts/containers/polkat-0.2.5.sif python3 tools/ms_info.py S1.ms
 ```
 
 Check all fields, calibrators, scans, frequencies, etc.
@@ -66,10 +60,7 @@ Make sure the calibrator information is correct for this observation.
 Run:
 
 ```bash
-apptainer exec \
-    --bind /fred:/fred \
-    /fred/oz341/skavya/scripts/containers/polkat-0.2.5.sif \
-    python3 setups/0_GET_INFO.py node
+apptainer exec  --bind /fred:/fred  /fred/oz341/skavya/scripts/containers/polkat-0.2.5.sif python3 setups/0_GET_INFO.py node
 ```
 
 This should create:
@@ -124,10 +115,7 @@ Do not continue to 1GC until I can name every field in the Measurement Set and e
 Run:
 
 ```bash
-apptainer exec \
-    --bind /fred:/fred \
-    /fred/oz341/skavya/scripts/containers/polkat-0.2.5.sif \
-    python3 setups/1GC.py node
+apptainer exec --bind /fred:/fred /fred/oz341/skavya/scripts/containers/polkat-0.2.5.sif python3 setups/1GC.py node
 ```
 
 Check what submit scripts were generated:
