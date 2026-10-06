@@ -62,6 +62,45 @@ Run:
 ```bash
 apptainer exec  --bind /fred:/fred  /fred/oz341/skavya/scripts/containers/polkat-0.2.5.sif python3 setups/0_GET_INFO.py node
 ```
+This should create:
+
+```text
+submit_info_job.sh
+```
+
+Step 4 — Create an OzSTAR Slurm wrapper
+
+Create:
+
+```bash
+nano run_info.slurm
+```
+
+Use:
+
+```bash
+#!/bin/bash
+#SBATCH --job-name=polkat_INFO
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=240G
+#SBATCH --time=10:00:00
+#SBATCH --output=polkat_INFO_%j.out
+#SBATCH --error=polkat_INFO_%j.err
+
+module load singularity
+
+cd /fred/oz341/skavya/FRB20121102A_kavya/Imaging/S1/
+unset LD_PRELOAD
+export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+
+bash -eo pipefail submit_info_job.sh
+```
+Submit as 
+
+```bash
+sbatch run_info.slurm
+```
 
 This should create:
 
