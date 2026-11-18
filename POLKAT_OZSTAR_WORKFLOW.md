@@ -2,17 +2,9 @@
 
 Here’s how I take one MeerKAT Measurement Set (MS) from raw visibilities to a self-calibrated image with `polkat-0.2.5.sif`. The paths below are for my L_4 observation. For your dataset, change `WORK`, `MS_SOURCE`, and the `cd` line in the 1GC script.
 
-```mermaid
-flowchart TD
-    A["Inspect the MS and set calibrators"] --> B["INFO · prepare the working MS"]
-    B --> C{"Fields and scans look right?"}
-    C -->|No| D["Review field assignments and exclusions"]
-    D --> C
-    C -->|Yes| E["1GC · calibrate against reference sources"]
-    E --> F["Check calibration logs and target MS files"]
-    F --> G["2GC · image and phase self-calibrate"]
-    G --> H["Inspect images in IMAGES/"]
-```
+[![POLKAT flow map for one target, showing the INFO, 1GC and 2GC steps and their checkpoints](assets/polkat-flow-map.png)](assets/polkat-flow-map.png)
+
+Click the map to zoom in. In this OzSTAR setup, each Slurm wrapper runs the steps for one stage in a single allocation.
 
 ## 1. Set up your observation
 
@@ -83,9 +75,36 @@ bash -eo pipefail submit_info_job.sh
 sbatch run_info.slurm
 ```
 
-**After INFO**, open `less project_info.json`. Match the master and working MS, targets, calibrators, band, and channel count to your MS inspection. Review excluded scans, especially for 2-second integrations where the short-scan workaround can affect science scans.
+### Checks after INFO
+
+Slurm can report `COMPLETED` even when a POLKAT step failed and the script carried on. After **every stage**, run this from `WORK`. Open each file listed and read the lines around the match.
+
+```bash
+grep -ilE "traceback|severe|error|killed|oom" casa-*.log
+```
+
+Open `less project_info.json` and check the master and working MS paths, then check these fields.
+
+| Field | What to look for |
+| --- | --- |
+| `band` | Matches the observation. |
+| `primary_tag` | `1934` or `0408`. Investigate an `other` tag. |
+| `polang_name` | Contains the angle calibrator’s field name. An empty value skips polarisation calibration. |
+| `target_cal_map` | Each target is paired with its expected phase calibrator. |
+
+Inspect the working copy inside the container. Use its exact name from `project_info.json`.
+
+```bash
+WORK_MS=observation_1024ch.ms   # Replace with your working MS
+singularity exec --bind /fred:/fred "$SIF" python3 tools/ms_info.py "$WORK_MS"
+```
+
+Compare with the original MS inspection. Expect **1024 channels**, every required source, and only single-integration glitch scans among the dropped scans.
 
 ## 4. Run referenced calibration (1GC)
+
+> [!IMPORTANT]
+> **Never run 1GC twice on the same `_1024ch.ms`.** It swaps the X/Y feeds in place. To redo 1GC, remove only the generated working copy, keep the original MS, and rerun INFO to build a fresh copy first.
 
 ```bash
 singularity exec --bind /fred:/fred "$SIF" python3 setups/1GC.py node
@@ -116,7 +135,26 @@ bash -eo pipefail submit_1GC_jobs.sh
 sbatch run_1GC.slurm
 ```
 
-**After 1GC**, review `LOGS/` for calibration failures and check that the target MS files listed in `project_info.json` exist.
+### Checks after 1GC
+
+```bash
+grep -ilE "traceback|severe|error|killed|oom" casa-*.log
+grep "Flux density for" casa-*.log
+```
+
+- **Logs and flux scale.** Read around any error matches. Compare each phase calibrator’s fitted flux density with its catalogue value at the observing frequency. Look for close agreement and a small fit uncertainty.
+- **Gain solutions.** Open `GAINPLOTS/`. Check that all expected dishes have solutions, the delay (K) and bandpass (B) plots look smooth, and gaps fall in known interference bands.
+- **Target files.** Check that the target MS files listed in `project_info.json` exist.
+
+Open the calibrator images matching `IMAGES/*diagnostic*-MFS-{I,Q,U,V}-image.fits`. Compare the polarisation at the source position with the catalogue for your band. These are approximate L-band checks.
+
+| Calibrator | What to look for |
+| --- | --- |
+| Primary (1934 or 0408) | Q, U and V consistent with zero within the image noise. |
+| 3C286 | About 9–10% linear polarisation at a position angle of about +33°. |
+| 3C138 | About 5–6% at about −14°. Allow for variability when comparing with the catalogue. |
+
+**If these checks fail, stop before 2GC.** Resolve the 1GC calibration first. Target phase self-calibration cannot repair a bad reference calibration.
 
 ## 5. Image and phase self-calibrate (2GC)
 
@@ -149,7 +187,26 @@ bash -eo pipefail submit_2GC_jobs.sh
 sbatch run_2GC.slurm
 ```
 
-**After 2GC**, open `IMAGES/` to inspect the target images. The individual imaging and self-calibration logs are in `LOGS/`.
+### Checks after 2GC
+
+```bash
+grep -ilE "traceback|severe|error|killed|oom" casa-*.log
+grep -l "Final post-solve chi-squared summary" LOGS/2GC_*/*
+```
+
+- **Logs and solver.** Read around any CASA error matches. Look for a final QuartiCal summary for each target in this run. If it is missing, treat that solve as unfinished until you inspect the full log. Read the summary itself to assess convergence.
+- **Flagging.** Check `LOGS/slurm_TRILE*.log` for the *additional* fraction flagged by Tricolour. As a guide, expect less than about 10–15% extra flagging. Investigate larger increases.
+- **Mask.** Overlay `*datablind*mask.fits` on the quick Stokes I image in `IMAGES/`. The mask should outline real sources and leave out rings and stripes.
+
+**Did self-cal help?** The quick `datablind` image identifies sources for the mask. POLKAT then cleans the 1GC data inside that mask to make `datamask` and predicts model visibilities from the cleaned model. QuartiCal compares the data with those visibilities to solve for each dish’s phase. The same masked imaging step on the corrected data gives `pcalmask`.
+
+Compare `datamask` (before) and `pcalmask` (after) for the same target and band.
+
+| Check | What you want to see in `pcalmask` |
+| --- | --- |
+| Noise | Equal or lower rms in the same source-free region. |
+| Artefacts | Weaker rings and stripes around bright sources on the same display scale. |
+| Target flux density | Agreement within a few per cent, allowing for measurement uncertainty. A significant drop can indicate flux suppression during self-cal. Revisit the model and mask. |
 
 ## Follow a job
 
