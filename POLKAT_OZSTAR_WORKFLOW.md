@@ -1,52 +1,65 @@
 # Running POLKAT on OzSTAR
 
-These are the commands for taking one MeerKAT Measurement Set (MS) through INFO, referenced calibration (1GC), and imaging and direction-independent phase self-calibration (2GC) with `polkat-0.2.5.sif`. Run the setup commands and submit each Slurm wrapper from the same observation directory.
+Here’s how I take one MeerKAT Measurement Set (MS) from raw visibilities to a self-calibrated image with `polkat-0.2.5.sif`. The paths below are for my L_4 observation. For your dataset, change `WORK`, `MS_SOURCE`, and the `cd` line in the 1GC script.
 
-## 1. Prepare the working directory
+```mermaid
+flowchart TD
+    A["Inspect the MS and set calibrators"] --> B["INFO · prepare the working MS"]
+    B --> C{"Fields and scans look right?"}
+    C -->|No| D["Review field assignments and exclusions"]
+    D --> C
+    C -->|Yes| E["1GC · calibrate against reference sources"]
+    E --> F["Check calibration logs and target MS files"]
+    F --> G["2GC · image and phase self-calibrate"]
+    G --> H["Inspect images in IMAGES/"]
+```
 
-For a fresh run, make the observation directory and clone the fork into it. Replace the example paths with the run directory and the absolute path to your MS. If the observation directory already contains the POLKAT checkout, enter it and skip the clone. POLKAT resolves `oxkat/` and `tools/` from the current directory.
+## 1. Set up your observation
+
+For a fresh run, clone POLKAT into an empty working directory. If you already have a checkout and a linked MS, set the variables below, enter `WORK`, and skip the `git clone` and `ln -s` lines.
 
 ```bash
-WORK=/fred/oz341/skavya/FRB20121102A_kavya/Imaging/S1
-MS_SOURCE=/fred/oz341/path/to/S1.ms
+WORK=/fred/oz341/skavya/FRB20121102A_kavya/Imaging/L/L_4/working_dir
+MS_SOURCE=/fred/oz341/path/to/observation.ms   # Set this to your MS
+SIF=/fred/oz341/skavya/scripts/containers/polkat-0.2.5.sif
+MS=$(basename "$MS_SOURCE")
+
 mkdir -p "$WORK"
 cd "$WORK"
 git clone https://github.com/Kavya-7217/polkat.git .
 ln -s "$MS_SOURCE" .
-MS=$(basename "$MS_SOURCE")
 git rev-parse HEAD
 ```
 
-Start INFO with a single input ending in `.ms` in this directory. The setup script selects the first match. If the link points outside `/fred` (for example, into `/idia/raw`), the compute node must have access to that filesystem, and the container bind settings must include the target path.
+Keep one input `*.ms` here because INFO takes the first match. Run the remaining commands from `WORK`, where POLKAT can find `oxkat/` and `tools/`. If the MS lives outside `/fred`, make sure the compute node can read it and include its filesystem in the container binds.
 
-## 2. Inspect the MS and configure calibration
+## 2. Get to know your MS
 
 ```bash
-module load apptainer
-SIF=/fred/oz341/skavya/scripts/containers/polkat-0.2.5.sif
-apptainer exec --bind /fred:/fred "$SIF" python3 tools/ms_info.py "$MS"
+module load singularity
+singularity exec --bind /fred:/fred "$SIF" python3 tools/ms_info.py "$MS"
 nano oxkat/config.py
 ```
 
-Check field names, scan intents, band and channel count. In `oxkat/config.py`, verify the container search directory and bind setting.
+Check the field names, scan intents, band, and channel count. In `oxkat/config.py`, set the container location and bind path.
 
 ```python
 NODE_CONTAINER_PATH = ['/fred/oz341/skavya/scripts/containers/', CWD]
 BIND = '/fred:/fred'
 ```
 
-Set `POLANG_NAME` to the polarisation-angle calibrator's exact MS field name and `POLANG_DIR` to its direction in the CASA format shown in the config. The fork includes examples for 3C286 and 3C138. If you switch calibrators, check the matching `POLANG_MOD` and `XF_TARGET_POLANG` as well. Record the checkout commit and container filename with the run.
+Copy the polarisation-angle calibrator’s exact field name into `POLANG_NAME` and set `POLANG_DIR` in the CASA format used in the file. For 3C286 or 3C138, start with the matching example and check `POLANG_MOD` and `XF_TARGET_POLANG`. Keep the checkout commit and container filename with your run notes.
 
-## 3. Generate and run INFO
+## 3. Run INFO
+
+Each setup command writes a shell script. Submit its Slurm wrapper from `WORK` so the generated commands run on a compute node. Wait for each job to finish and check its results before starting the next one.
 
 ```bash
-apptainer exec --bind /fred:/fred "$SIF" python3 setups/0_GET_INFO.py node
+singularity exec --bind /fred:/fred "$SIF" python3 setups/0_GET_INFO.py node
 less submit_info_job.sh
 ```
 
-The setup command writes a shell script. Running that script prepares the working MS and project metadata. In `node` mode the generated commands run within the wrapper’s allocation and invoke `singularity exec`. The wrappers below check for the compatibility command after loading Apptainer and fall back to the Singularity module used in the original workflow. The child Bash enables `pipefail` so a failed command piped through `tee` propagates to Slurm.
-
-Save as `run_info.slurm`.
+Save this as `run_info.slurm` in `WORK`.
 
 ```bash
 #!/bin/bash
@@ -58,81 +71,61 @@ Save as `run_info.slurm`.
 #SBATCH --output=polkat_info_%j.out
 #SBATCH --error=polkat_info_%j.err
 
-set -eo pipefail
-module load apptainer
-command -v singularity >/dev/null || module load singularity
-singularity --version
+module load singularity
 cd "$SLURM_SUBMIT_DIR"
 unset LD_PRELOAD
-export OMP_NUM_THREADS="$SLURM_CPUS_PER_TASK"
+export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 
-echo "POLKAT info | job $SLURM_JOB_ID | $(hostname) | $OMP_NUM_THREADS CPUs"
-echo "Started $(date) in $PWD"
 bash -eo pipefail submit_info_job.sh
-echo "POLKAT info finished $(date)"
 ```
 
 ```bash
 sbatch run_info.slurm
 ```
 
-## 4. Inspect the INFO results
+**After INFO**, open `less project_info.json`. Match the master and working MS, targets, calibrators, band, and channel count to your MS inspection. Review excluded scans, especially for 2-second integrations where the short-scan workaround can affect science scans.
 
-After the INFO job completes successfully, open the metadata.
-
-```bash
-less project_info.json
-```
-
-Check the master and working MS, target identities, primary/bandpass calibrator, phase calibrator, polarisation-angle calibrator, observing band and intended channel count against the MS inspection. Review any excluded scans. For 2-second integrations, check whether the short-scan metadata workaround affected genuine science scans. Resolve field assignments before starting 1GC.
-
-## 5. Generate and submit 1GC
+## 4. Run referenced calibration (1GC)
 
 ```bash
-apptainer exec --bind /fred:/fred "$SIF" python3 setups/1GC.py node
+singularity exec --bind /fred:/fred "$SIF" python3 setups/1GC.py node
 less submit_1GC_jobs.sh
 ```
 
-Save as `run_1GC.slurm`.
+Save this as `run_1GC.slurm` in `WORK`.
 
 ```bash
 #!/bin/bash
 #SBATCH --job-name=polkat_1GC
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
-#SBATCH --mem=240G
-#SBATCH --time=1-00:00:00
+#SBATCH --mem=400G
+#SBATCH --time=23:59:59
 #SBATCH --output=polkat_1GC_%j.out
 #SBATCH --error=polkat_1GC_%j.err
 
-set -eo pipefail
-module load apptainer
-command -v singularity >/dev/null || module load singularity
-singularity --version
-cd "$SLURM_SUBMIT_DIR"
+module load singularity
+cd /fred/oz341/skavya/FRB20121102A_kavya/Imaging/L/L_4/working_dir/
 unset LD_PRELOAD
-export OMP_NUM_THREADS="$SLURM_CPUS_PER_TASK"
+export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 
-echo "POLKAT 1GC | job $SLURM_JOB_ID | $(hostname) | $OMP_NUM_THREADS CPUs"
-echo "Started $(date) in $PWD"
 bash -eo pipefail submit_1GC_jobs.sh
-echo "POLKAT 1GC finished $(date)"
 ```
 
 ```bash
 sbatch run_1GC.slurm
 ```
 
-## 6. Generate and submit 2GC
+**After 1GC**, review `LOGS/` for calibration failures and check that the target MS files listed in `project_info.json` exist.
 
-After 1GC completes successfully, check the calibration logs and confirm the target MS files listed in `project_info.json` exist. Generate the 2GC commands.
+## 5. Image and phase self-calibrate (2GC)
 
 ```bash
-apptainer exec --bind /fred:/fred "$SIF" python3 setups/2GC.py node
+singularity exec --bind /fred:/fred "$SIF" python3 setups/2GC.py node
 less submit_2GC_jobs.sh
 ```
 
-Save as `run_2GC.slurm`.
+Save this as `run_2GC.slurm` in `WORK`.
 
 ```bash
 #!/bin/bash
@@ -144,33 +137,34 @@ Save as `run_2GC.slurm`.
 #SBATCH --output=polkat_2GC_%j.out
 #SBATCH --error=polkat_2GC_%j.err
 
-set -eo pipefail
-module load apptainer
-command -v singularity >/dev/null || module load singularity
-singularity --version
+module load singularity
 cd "$SLURM_SUBMIT_DIR"
 unset LD_PRELOAD
-export OMP_NUM_THREADS="$SLURM_CPUS_PER_TASK"
+export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 
-echo "POLKAT 2GC | job $SLURM_JOB_ID | $(hostname) | $OMP_NUM_THREADS CPUs"
-echo "Started $(date) in $PWD"
 bash -eo pipefail submit_2GC_jobs.sh
-echo "POLKAT 2GC finished $(date)"
 ```
 
 ```bash
 sbatch run_2GC.slurm
 ```
 
-## 7. Check job status and find the images
+**After 2GC**, open `IMAGES/` to inspect the target images. The individual imaging and self-calibration logs are in `LOGS/`.
 
-Use the ID printed by `sbatch` to check the job and its exit status. For example, for 2GC:
+## Follow a job
+
+Use the ID printed by `sbatch`. For example, to follow 1GC from `WORK`, run
 
 ```bash
-squeue -u "$USER"
-JOBID=12345678  # Replace with your job ID
-sacct -j "$JOBID" --format=JobID,State,ExitCode,Elapsed
-tail -f "polkat_2GC_${JOBID}.out"
+JOBID=12345678   # Replace with your job ID
+squeue -j "$JOBID"
+tail -f "polkat_1GC_${JOBID}.out"
 ```
 
-The wrapper writes its standard output and errors to the observation directory. POLKAT writes individual step logs under `LOGS/`. After imaging, inspect the products under `IMAGES/` in the same working directory.
+Press `Ctrl+C` to leave the live log. Once the job finishes, check its final state and exit code.
+
+```bash
+sacct -j "$JOBID" --format=JobID,State,ExitCode,Elapsed
+```
+
+Look for `COMPLETED` and `0:0`. If a step fails, start with `polkat_1GC_<jobid>.err` and the matching step log in `LOGS/`. For INFO or 2GC, use `polkat_info` or `polkat_2GC` in the log filename.
