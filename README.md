@@ -1,6 +1,8 @@
-# polkat-ozstar-workflow
-Personal notes for running the POLKAT MeerKAT calibration and imaging pipeline on OzSTAR using Apptainer.
-This repository is mainly for keeping track of the exact commands, configuration changes, checks, and Slurm scripts I use so I can reproduce the workflow later.
+# Running POLKAT on OzSTAR
+
+Andrew K. Hughes, Fraser J. Cowie, Ian Heywood, and Ben Hugo developed [POLKAT](https://github.com/AKHughes1994/polkat) for calibrating and imaging MeerKAT polarisation data. This repository contains my notes on running their pipeline on OzSTAR, including the Slurm scripts I use and the checks I make after each stage.
+
+[Read the step-by-step OzSTAR guide](POLKAT_OZSTAR_WORKFLOW.md)
 
 POLKAT container
 Current container:
