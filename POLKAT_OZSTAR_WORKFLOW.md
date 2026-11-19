@@ -1,6 +1,6 @@
 # Running POLKAT on OzSTAR
 
-Here’s how I take one MeerKAT Measurement Set (MS) from raw visibilities to a self-calibrated image with `polkat-0.2.5.sif`. The paths below are for my L_4 observation. For your dataset, change `WORK`, `MS_SOURCE`, and the `cd` line in the 1GC script.
+Here’s how I take one MeerKAT Measurement Set (MS) from raw visibilities to a self-calibrated image with `polkat-0.2.5.sif`. The paths below are for one of my R1 observation. For your dataset, change `WORK`, `MS_SOURCE`, and the `cd` line in the 1GC script.
 
 [![POLKAT flow map for one target, showing the INFO, 1GC and 2GC steps and their checkpoints](assets/polkat-flow-map.png)](assets/polkat-flow-map.png)
 
